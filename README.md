@@ -49,6 +49,7 @@ cd drawbridge
 # 1. 先生成并设置一个随机密钥 —— 不做这步服务会拒绝启动
 cp .env.example .env
 echo "CHATGPT2API_AUTH_KEY=$(openssl rand -hex 24)" >> .env
+# .env.example 里这一行是注释掉的，所以追加后只有一处定义
 
 # 2. 启动
 docker compose up -d
