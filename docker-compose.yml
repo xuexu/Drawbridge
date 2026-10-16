@@ -1,0 +1,36 @@
+services:
+  app:
+    # 从本仓库构建。不要改成拉取上游的 ghcr 镜像：
+    # 那会跑未加固的代码，而且没有下面的非 root 入口脚本和 8080 端口。
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: drawbridge:local
+    container_name: drawbridge
+    restart: unless-stopped
+    ports:
+      # 容器内监听 8080（非 root 无法绑定 80），宿主机仍走 3000
+      - "3000:8080"
+    volumes:
+      - ./data:/app/data
+      - ./config.json:/app/config.json
+    environment:
+      # 认证密钥（必填）。空密钥或公开默认密钥会导致拒绝启动，这是故意的：
+      # 否则管理面板会对全网开放。生成： openssl rand -hex 24
+      - CHATGPT2API_AUTH_KEY=${CHATGPT2API_AUTH_KEY:?请先设置 CHATGPT2API_AUTH_KEY：cp .env.example .env 并填入 openssl rand -hex 24 生成的密钥}
+
+      # 存储后端配置 (可选值: json, sqlite, postgres, git)
+      - STORAGE_BACKEND=json
+
+      # 数据库配置 (当 STORAGE_BACKEND=sqlite/postgres 时使用)
+      # - DATABASE_URL=postgresql://user:password@host:5432/dbname
+      # - DATABASE_URL=sqlite:///app/data/accounts.db
+
+      # Git 仓库配置 (当 STORAGE_BACKEND=git 时使用)
+      # - GIT_REPO_URL=https://github.com/user/repo.git
+      # - GIT_TOKEN=ghp_xxxxxxxxxxxx
+      # - GIT_BRANCH=main
+      # - GIT_FILE_PATH=accounts.json
+
+      # 基础 URL (可选)
+      # - CHATGPT2API_BASE_URL=https://your-domain.com

@@ -1,0 +1,35 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+web_dist
+# Virtual environments
+.venv
+.idea
+data
+# config.json 是模板，必须随仓库分发（Dockerfile 要 COPY 它，compose 要挂载它），
+# 所以它被强制跟踪；这里保留忽略规则，是为了让你改完 auth-key 后不会误提交自己的密钥。
+config.json
+edit
+
+.claude/settings.local.json
+
+# Environment variables
+.env
+.env.local
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Git cache
+git_cache/
+
+# 调试/测试输出目录
+loginwithpassword_*/
+logwithemailverifycode_*/
+test_batch_output/
