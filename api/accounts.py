@@ -8,6 +8,7 @@ import uuid
 import zipfile
 from datetime import datetime
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.concurrency import run_in_threadpool
@@ -363,11 +364,12 @@ def create_router() -> APIRouter:
     ):
         """收用户从浏览器抓回的 callback URL / code，换出 token 三件套并落盘。"""
         require_admin(authorization)
-        # 入参日志：截断敏感字段，仅保留前几位，方便排错而不泄密
-        cb_preview = (body.callback or "")[:80]
+        # 原来的 [:80] 截断挡不住凭据：code/state 就在 callback 查询串最前面。
+        # 只记录主机名，足以排错，凭据一律不落日志。
+        cb_host = urlparse(body.callback or "").netloc or "<unparsable>"
         sid_preview = (body.session_id or "")[:8]
         print(
-            f"[oauth-login] finish called: session_id={sid_preview}..., callback_preview={cb_preview!r}",
+            f"[oauth-login] finish called: session_id={sid_preview}..., callback_host={cb_host}",
             flush=True,
         )
         try:

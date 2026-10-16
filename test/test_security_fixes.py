@@ -181,6 +181,40 @@ class ImageUrlSsrfGuardTests(unittest.TestCase):
         self.assertNotIn("allow_redirects=True", source)
 
 
+class HealthEndpointDisclosureTests(unittest.TestCase):
+    """公开的 /health 不能泄露号池明细（容器健康检查仍然要能用）。"""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from fastapi.testclient import TestClient
+
+        from api.app import create_app
+
+        cls.client = TestClient(create_app())
+
+    def test_unauthenticated_returns_only_status(self) -> None:
+        response = self.client.get("/health?format=json")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("status", payload)
+        for leaked in ("accounts", "proxy_runtime", "storage", "version"):
+            with self.subTest(field=leaked):
+                self.assertNotIn(leaked, payload)
+
+    def test_unauthenticated_html_does_not_render_dashboard(self) -> None:
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("号池健康监控", response.text)
+
+    def test_admin_still_gets_details(self) -> None:
+        key = os.environ["CHATGPT2API_AUTH_KEY"]
+        response = self.client.get("/health?format=json", headers={"Authorization": f"Bearer {key}"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("accounts", payload)
+        self.assertIn("proxy_runtime", payload)
+
+
 class EditableFileOwnershipTests(unittest.TestCase):
     """/files/{path} 只能拿到自己任务产出的文件。"""
 

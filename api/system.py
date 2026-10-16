@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from urllib.parse import quote
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
@@ -294,12 +295,21 @@ def create_router(app_version: str) -> APIRouter:
         return await run_in_threadpool(delete_to_target, target_free_mb, dry_run)
 
     @router.get("/health", response_model=None)
-    async def health_dashboard(format: str = Query(default="html")):
+    async def health_dashboard(format: str = Query(default="html"), authorization: str | None = Header(default=None)):
         from services.account_service import account_service as acct_svc
         stats = acct_svc.get_stats()
+        healthy = stats["active"] > 0
+
+        # 这个端点是公开的（容器健康检查、外部探活都靠它），所以未鉴权只回一个状态，
+        # 不暴露号池数量、剩余额度和存储/代理详情。需要明细请带管理员密钥，
+        # 或直接看后台面板。
+        try:
+            require_admin(authorization)
+        except HTTPException:
+            return {"status": "ok" if healthy else "degraded", "healthy": healthy}
+
         storage = config.get_storage_backend()
         storage_health = storage.health_check()
-        healthy = stats["active"] > 0
 
         stats_json = {
             "status": "ok" if healthy else "degraded",
@@ -357,7 +367,7 @@ td{{padding:8px 12px;border-top:1px solid #2a2d3a;font-size:14px}}tr:hover td{{b
 <h2 style="margin-bottom:12px;font-size:16px">账号类型分布</h2>
 <table>
 <tr><th>类型</th><th>数量</th></tr>
-{''.join(f'<tr><td>{t}</td><td>{c}</td></tr>' for t,c in sorted(stats['by_type'].items()))}
+{''.join(f'<tr><td>{escape(str(t))}</td><td>{escape(str(c))}</td></tr>' for t, c in sorted(stats['by_type'].items()))}
 </table>
 <div class="refresh">JSON: <span class="api-url">/health?format=json</span></div>
 </div></body></html>""")

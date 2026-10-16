@@ -7,6 +7,8 @@
 + [安全] 图片 URL 抓取拒绝内网、回环、链路本地等非公网地址，重定向逐跳校验；此前任意普通用户密钥即可用图片链接探测内网服务与云元数据地址。聊天与 vision 链路（`/v1/chat/completions`、`/v1/messages`、`/v1/responses`）走的是另一个抓取函数，同样已加上守卫，两处共用同一个实现。
 + [安全] `/files/{path}` 下载接口补上鉴权并校验任务归属；此前该接口无任何鉴权，可遍历下载他人产出的 PPT / PSD。产出目录同时改为按归属隔离（`{kind}/{owner}/{task_id}`），避免用同名 `client_task_id` 认领他人的目录。
 + [安全] 管理密钥比较改用 `hmac.compare_digest` 且先编码为 bytes；否则发送含非 ASCII 字符的 Bearer 会让所有受保护接口抛 `TypeError` 变成 500。
++ [安全] `/health` 是公开端点，未鉴权时只返回 `{"status", "healthy"}`，不再暴露号池数量、剩余额度、存储与代理详情；带管理员密钥仍可拿到完整明细。面板里的账号类型同时做了 HTML 转义。
++ [安全] OAuth 回调日志不再打印 callback 内容。原实现用 `[:80]` 截断，但 `code` / `state` 就在查询串最前面，截断挡不住，现在只记录主机名。
 + [修复] 设置接口只提交部分字段时不再把已保存的密钥静默清空（想清空需显式传空字符串）。
 + [安全] 设置接口返回的 `ai_review.api_key`、`backup.secret_access_key`、`backup.passphrase`、`image_storage.webdav_password` 统一打码，前端回写时自动还原。
 + [安全] 移除 OAuth 换取 token 时硬编码的 `verify=False`，恢复证书校验。
