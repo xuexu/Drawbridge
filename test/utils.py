@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 import sys
 import time
 import urllib.request
@@ -15,7 +16,11 @@ if str(ROOT_DIR) not in sys.path:
 
 
 def load_auth_key() -> str:
-    return json.loads((ROOT_DIR / "config.json").read_text(encoding="utf-8"))["auth-key"]
+    # 优先环境变量：仓库里的 config.json 现在 auth-key 为空（空值会让服务拒绝启动），
+    # 集成测试需要自己通过 CHATGPT2API_AUTH_KEY 指定密钥。
+    return os.environ.get("CHATGPT2API_AUTH_KEY") or json.loads(
+        (ROOT_DIR / "config.json").read_text(encoding="utf-8")
+    ).get("auth-key", "")
 
 
 def post_json(path: str, payload: dict) -> dict:

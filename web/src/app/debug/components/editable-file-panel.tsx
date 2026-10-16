@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { httpRequest } from "@/lib/request";
 import { cn } from "@/lib/utils";
+import { downloadEditableFile } from "@/lib/api";
 import {
   listDeletedEditableFileIds,
   listEditableFileDrafts,
@@ -83,9 +84,7 @@ function ResultFile({ href, icon, label }: { href?: string; icon: ReactNode; lab
         <div className="text-sm font-semibold text-stone-950 dark:text-stone-50">{label}</div>
         <div className="truncate text-xs text-stone-500 dark:text-stone-400">{fileNameOf(href)}</div>
       </div>
-      <Button size="sm" asChild>
-        <a href={href} target="_blank" rel="noreferrer">下载</a>
-      </Button>
+      <Button size="sm" onClick={() => void downloadEditableFile(href)}>下载</Button>
     </div>
   );
 }

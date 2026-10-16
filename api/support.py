@@ -23,8 +23,10 @@ def extract_bearer_token(authorization: str | None) -> str:
 
 def _legacy_admin_identity(token: str) -> dict[str, object] | None:
     auth_key = str(config.auth_key or "").strip()
-    # 用 compare_digest 做常量时间比较，避免通过响应耗时逐字节爆破管理密钥
-    if auth_key and token and hmac.compare_digest(token, auth_key):
+    # 用 compare_digest 做常量时间比较，避免通过响应耗时逐字节爆破管理密钥。
+    # 必须先编码成 bytes：compare_digest 不接受含非 ASCII 字符的 str，否则
+    # 攻击者发一个 "Bearer café" 就能让每个受保护接口抛 TypeError 变成 500。
+    if auth_key and token and hmac.compare_digest(token.encode("utf-8"), auth_key.encode("utf-8")):
         return {"id": "admin", "name": "管理员", "role": "admin"}
     return None
 

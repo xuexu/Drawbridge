@@ -96,6 +96,42 @@ class SettingsSecretMaskingTests(unittest.TestCase):
             store.update({"ai_review": {"enabled": True, "api_key": "sk-brand-new"}})
             self.assertEqual(store.data["ai_review"]["api_key"], "sk-brand-new")
 
+    def test_update_keeps_secret_when_field_is_absent(self) -> None:
+        """只提交部分字段时不能把已保存的密钥静默清空。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            _, store = self._make_store(tmp)
+            store.data["backup"] = {"enabled": True, "secret_access_key": "r2-keep", "passphrase": "pw-keep"}
+            store.update({"backup": {"enabled": True}})
+            self.assertEqual(store.data["backup"]["secret_access_key"], "r2-keep")
+            self.assertEqual(store.data["backup"]["passphrase"], "pw-keep")
+
+    def test_update_clears_secret_when_explicitly_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _, store = self._make_store(tmp)
+            store.data["backup"] = {"enabled": True, "secret_access_key": "r2-keep", "passphrase": "pw-keep"}
+            store.update({"backup": {"enabled": True, "secret_access_key": "", "passphrase": ""}})
+            self.assertEqual(store.data["backup"]["secret_access_key"], "")
+            self.assertEqual(store.data["backup"]["passphrase"], "")
+
+
+class AdminKeyComparisonTests(unittest.TestCase):
+    """管理密钥比较必须常量时间，且不能被畸形输入打成 500。"""
+
+    def test_non_ascii_bearer_does_not_crash(self) -> None:
+        from api import support
+
+        # compare_digest 直接吃含非 ASCII 的 str 会抛 TypeError → 500
+        for token in ("café", "密钥", "sk-\u00e9\u00e9", "日本語"):
+            with self.subTest(token=token):
+                self.assertIsNone(support._legacy_admin_identity(token))
+
+    def test_correct_admin_key_still_matches(self) -> None:
+        from api import support
+
+        identity = support._legacy_admin_identity("test-key-for-local-security-tests")
+        self.assertIsNotNone(identity)
+        self.assertEqual(identity["role"], "admin")
+
 
 class ImageUrlSsrfGuardTests(unittest.TestCase):
     """图片 URL 抓取不能用来探测内网。"""
@@ -103,10 +139,10 @@ class ImageUrlSsrfGuardTests(unittest.TestCase):
     def _assert_rejected(self, url: str) -> None:
         from fastapi import HTTPException
 
-        from api import image_inputs
+        from utils.helper import assert_public_http_url
 
         with self.assertRaises(HTTPException) as ctx:
-            image_inputs._assert_public_url(url)
+            assert_public_http_url(url)
         self.assertIn(ctx.exception.status_code, (400,))
 
     def test_rejects_internal_targets(self) -> None:
@@ -130,9 +166,19 @@ class ImageUrlSsrfGuardTests(unittest.TestCase):
                 self._assert_rejected(url)
 
     def test_accepts_public_address(self) -> None:
-        from api import image_inputs
+        from utils.helper import assert_public_http_url
 
-        image_inputs._assert_public_url("http://93.184.216.34/image.png")
+        assert_public_http_url("http://93.184.216.34/image.png")
+
+    def test_all_fetchers_go_through_the_guard(self) -> None:
+        """聊天/vision 链路也必须走同一个守卫，不能只有 images/edits 一处修了。"""
+        import inspect
+
+        from utils import helper
+
+        source = inspect.getsource(helper._decode_message_image_url)
+        self.assertIn("fetch_public_url_stream", source)
+        self.assertNotIn("allow_redirects=True", source)
 
 
 class EditableFileOwnershipTests(unittest.TestCase):
@@ -152,10 +198,10 @@ class EditableFileOwnershipTests(unittest.TestCase):
                 service._tasks[module._task_key("alice", "t1")] = {
                     "id": "t1", "owner_id": "alice", "status": "success", "kind": "ppt",
                 }
-                target = root / "ppt" / "t1" / "deck.pptx"
+                target = root / "ppt" / "alice" / "t1" / "deck.pptx"
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(b"fake-pptx")
-                rel = "ppt/t1/deck.pptx"
+                rel = "ppt/alice/t1/deck.pptx"
 
                 self.assertEqual(service.public_file_path(rel, {"id": "alice", "role": "user"}), target.resolve())
                 with self.assertRaises(FileNotFoundError):
@@ -164,6 +210,48 @@ class EditableFileOwnershipTests(unittest.TestCase):
                     service.public_file_path(rel, {"id": "carol", "role": "user"})
                 # 管理员仍可访问
                 self.assertEqual(service.public_file_path(rel, {"id": "root", "role": "admin"}), target.resolve())
+            finally:
+                module.EDITABLE_FILE_ROOT = old_root
+                module.EDITABLE_FILE_TASKS_PATH = old_tasks_path
+
+    def test_cannot_claim_someone_elses_task_id(self) -> None:
+        """client_task_id 由调用方自选，用它建一个同 ID 的任务不能认领别人的产出目录。"""
+        from services import editable_file_task_service as module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old_root = module.EDITABLE_FILE_ROOT
+            old_tasks_path = module.EDITABLE_FILE_TASKS_PATH
+            try:
+                module.EDITABLE_FILE_ROOT = root
+                module.EDITABLE_FILE_TASKS_PATH = root / "tasks.json"
+                service = module.EditableFileTaskService(path=root / "tasks.json")
+                # 受害者产出的文件在自己的目录下
+                victim_rel = "ppt/victim/t9/deck.pptx"
+                victim_file = root / victim_rel
+                victim_file.parent.mkdir(parents=True, exist_ok=True)
+                victim_file.write_bytes(b"victim-data")
+                service._tasks[module._task_key("victim", "t9")] = {
+                    "id": "t9", "owner_id": "victim", "status": "success", "kind": "ppt",
+                }
+
+                # 攻击者拿到同一个 task_id 也只能待在自己的目录里
+                with self.assertRaises(FileNotFoundError):
+                    service.public_file_path(victim_rel, {"id": "attacker", "role": "user"})
+                attacker_rel = "ppt/attacker/t9/deck.pptx"
+                attacker_file = root / attacker_rel
+                attacker_file.parent.mkdir(parents=True, exist_ok=True)
+                attacker_file.write_bytes(b"attacker-data")
+                self.assertEqual(
+                    service.public_file_path(attacker_rel, {"id": "attacker", "role": "user"}),
+                    attacker_file.resolve(),
+                )
+
+                # 受害者仍能访问自己的文件（攻击者无法通过占位 ID 把对方锁死）
+                self.assertEqual(
+                    service.public_file_path(victim_rel, {"id": "victim", "role": "user"}),
+                    victim_file.resolve(),
+                )
             finally:
                 module.EDITABLE_FILE_ROOT = old_root
                 module.EDITABLE_FILE_TASKS_PATH = old_tasks_path

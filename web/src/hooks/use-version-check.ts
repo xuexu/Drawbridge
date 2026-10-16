@@ -6,10 +6,11 @@ import { toast } from "sonner";
 import webConfig from "@/constants/common-env";
 import { parseChangelog, type ReleaseInfo } from "@/lib/release";
 
+// 指向本仓库：用上游地址会比对上错误的本版号，一直误报"有新版本"
 const latestVersionUrl =
-  "https://raw.githubusercontent.com/basketikun/chatgpt2api/main/VERSION";
+  "https://raw.githubusercontent.com/Frank-789/Drawbridge/main/VERSION";
 const latestChangelogUrl =
-  "https://raw.githubusercontent.com/basketikun/chatgpt2api/main/CHANGELOG.md";
+  "https://raw.githubusercontent.com/Frank-789/Drawbridge/main/CHANGELOG.md";
 
 function readLocalReleases(): ReleaseInfo[] {
   return JSON.parse(process.env.NEXT_PUBLIC_APP_RELEASES || "[]");

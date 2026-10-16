@@ -2,21 +2,18 @@ from __future__ import annotations
 
 import base64
 import binascii
-import ipaddress
 import json
 import mimetypes
 import re
-import socket
 from pathlib import PurePosixPath
 from typing import Any, TypeGuard
-from urllib.parse import unquote, unquote_to_bytes, urljoin, urlparse
+from urllib.parse import unquote, unquote_to_bytes, urlparse
 
-from curl_cffi import requests
 from fastapi import HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
-from services.proxy_service import proxy_settings
+from utils.helper import fetch_public_url_stream
 
 ImageInput = tuple[bytes, str, str]
 ImageSource = str | UploadFile | ImageInput
@@ -247,9 +244,9 @@ def _decode_data_url(url: str) -> ImageInput:
     return data, f"image_url.{_extension_from_mime(mime_type)}", mime_type
 
 
-def _response_mime_type(response: requests.Response, parsed_path: str) -> str:
+def _response_mime_type(content_type: str, parsed_path: str) -> str:
     """识别下载图片类型：优先响应头，必要时按 URL 后缀推断。"""
-    header_type = str(response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    header_type = str(content_type or "").split(";", 1)[0].strip().lower()
     guessed_type = mimetypes.guess_type(parsed_path)[0] or ""
     if header_type.startswith("image/"):
         return header_type
@@ -268,65 +265,24 @@ def _filename_from_url(parsed_path: str, mime_type: str) -> str:
     return _safe_filename(raw_name, mime_type, "image_url")
 
 
-def _assert_public_url(url: str) -> None:
-    """拒绝指向内网/回环/链路本地等非公网地址的 URL，避免 SSRF 探测内部服务。"""
-    parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise HTTPException(status_code=400, detail={"error": "image_url must be an http or https URL"})
-    host = parsed.hostname or ""
-    if not host:
-        raise HTTPException(status_code=400, detail={"error": "image_url must be an http or https URL"})
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror as exc:
-        raise HTTPException(status_code=400, detail={"error": f"image_url host cannot be resolved: {host}"}) from exc
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"error": "image_url host cannot be resolved"}) from exc
-        if not ip.is_global:
-            raise HTTPException(status_code=400, detail={"error": "image_url must not point to a private or internal address"})
-
-
 def _download_image_url(url: str) -> ImageInput:
     """下载远程图片：把 http/https 图片链接转成标准图片输入元组。"""
     source = _clean(url)
     if source.startswith("data:"):
         return _decode_data_url(source)
-    # 手动跟随重定向：每一跳都要重新校验，否则公网 URL 用 302 就能跳进内网
-    target = source
-    for _ in range(5):
-        _assert_public_url(target)
-        try:
-            response = requests.get(
-                target,
-                headers={"Accept": "image/*,*/*;q=0.8", "User-Agent": "drawbridge image fetcher"},
-                timeout=60,
-                allow_redirects=False,
-                **proxy_settings.build_session_kwargs(),
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail={"error": f"image_url fetch failed: {exc}"}) from exc
-        location = _clean(response.headers.get("location"))
-        if response.status_code in {301, 302, 303, 307, 308} and location:
-            target = urljoin(target, location)
-            continue
-        break
-    else:
-        raise HTTPException(status_code=400, detail={"error": "image_url has too many redirects"})
+    try:
+        data, target, content_type = fetch_public_url_stream(
+            source,
+            headers={"Accept": "image/*,*/*;q=0.8", "User-Agent": "drawbridge image fetcher"},
+            timeout=60,
+            max_bytes=MAX_IMAGE_REFERENCE_BYTES,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail={"error": f"image_url fetch failed: {exc}"}) from exc
     parsed = urlparse(target)
-    if not 200 <= response.status_code < 300:
-        raise HTTPException(status_code=400, detail={"error": f"image_url fetch failed: HTTP {response.status_code}"})
-    content_length = _clean(response.headers.get("content-length"))
-    if content_length and content_length.isdigit() and int(content_length) > MAX_IMAGE_REFERENCE_BYTES:
-        raise HTTPException(status_code=400, detail={"error": "image_url exceeds 50MB limit"})
-    data = response.content
-    if not data:
-        raise HTTPException(status_code=400, detail={"error": "image_url returned empty content"})
-    if len(data) > MAX_IMAGE_REFERENCE_BYTES:
-        raise HTTPException(status_code=400, detail={"error": "image_url exceeds 50MB limit"})
-    mime_type = _response_mime_type(response, parsed.path)
+    mime_type = _response_mime_type(content_type, parsed.path)
     return data, _filename_from_url(parsed.path, mime_type), mime_type
 
 

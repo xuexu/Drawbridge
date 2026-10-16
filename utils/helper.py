@@ -1,13 +1,15 @@
 import base64
 import hashlib
+import ipaddress
 import json
 import mimetypes
 import re
+import socket
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Iterator
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from curl_cffi import requests
 from fastapi import HTTPException
@@ -30,6 +32,80 @@ MAX_JSON_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_JSON_EDIT_IMAGES = 10
 DATA_URL_IMAGE_RE = re.compile(r"^data:(?P<mime>[-+./\w]+);base64,(?P<data>.*)$", re.DOTALL)
 REMOTE_IMAGE_TIMEOUT_SECONDS = 20
+
+# 所有"由用户提供的 URL 去服务端抓取"的入口都必须先过这个守卫。
+# 单独抽出来是为了不再出现"修了一处、漏了另一处"的情况。
+MAX_REMOTE_IMAGE_BYTES = 50 * 1024 * 1024
+MAX_REMOTE_REDIRECTS = 5
+
+
+def assert_public_http_url(url: str) -> None:
+    """拒绝指向内网、回环、链路本地等非公网地址的 URL，避免 SSRF 探测内部服务。"""
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=400, detail={"error": "image_url must be an http or https URL"})
+    host = parsed.hostname or ""
+    if not host:
+        raise HTTPException(status_code=400, detail={"error": "image_url must be an http or https URL"})
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise HTTPException(status_code=400, detail={"error": f"image_url host cannot be resolved: {host}"}) from exc
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": "image_url host cannot be resolved"}) from exc
+        if not ip.is_global:
+            raise HTTPException(status_code=400, detail={"error": "image_url must not point to a private or internal address"})
+
+
+def fetch_public_url_stream(
+    url: str, *, headers: dict[str, str], timeout: int, max_bytes: int = MAX_REMOTE_IMAGE_BYTES
+) -> tuple[bytes, str, str]:
+    """带 SSRF 防护地抓取远程内容，返回 (内容, 最终 URL, content-type)。
+
+    shortcut: 校验用 getaddrinfo、连接由 curl_cffi 再解析一次，理论上存在 DNS rebinding
+    窗口；且配置了 HTTP 代理时是代理解析域名，本地校验不再是权威。
+    要彻底防住需要把请求固定在校验过的 IP 上（curl 的 resolve 选项），当前未做。
+    """
+    target = url
+    response = None
+    for _ in range(MAX_REMOTE_REDIRECTS + 1):
+        assert_public_http_url(target)
+        response = requests.get(
+            target,
+            headers=headers,
+            timeout=timeout,
+            allow_redirects=False,
+            **proxy_settings.build_session_kwargs(),
+        )
+        location = str(response.headers.get("location") or "").strip()
+        if response.status_code in {301, 302, 303, 307, 308} and location:
+            target = urljoin(target, location)
+            continue
+        break
+    else:
+        raise HTTPException(status_code=400, detail={"error": "image_url has too many redirects"})
+    if not 200 <= response.status_code < 300:
+        raise HTTPException(status_code=400, detail={"error": f"image_url fetch failed: HTTP {response.status_code}"})
+    declared = str(response.headers.get("content-length") or "").strip()
+    if declared.isdigit() and int(declared) > max_bytes:
+        raise HTTPException(status_code=400, detail={"error": "image_url exceeds size limit"})
+    # 分块累积而不是一次性 response.content：content-length 可能缺失或撒谎
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in response.iter_content(1024 * 1024):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=400, detail={"error": "image_url exceeds size limit"})
+        chunks.append(chunk)
+    data = b"".join(chunks)
+    if not data:
+        raise HTTPException(status_code=400, detail={"error": "image_url returned empty content"})
+    return data, target, str(response.headers.get("content-type") or "")
 
 
 def _image_extension(mime_type: str) -> str:
@@ -338,28 +414,14 @@ def _decode_message_image_url(value: object) -> tuple[bytes, str] | None:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return None
 
-    try:
-        response = requests.get(
-            source,
-            headers={"Accept": "image/*,*/*;q=0.8", "User-Agent": "drawbridge vision fetcher"},
-            timeout=REMOTE_IMAGE_TIMEOUT_SECONDS,
-            allow_redirects=True,
-            **proxy_settings.build_session_kwargs(),
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail={"error": f"image_url fetch failed: {exc}"}) from exc
-    if not 200 <= response.status_code < 300:
-        raise HTTPException(status_code=400, detail={"error": f"image_url fetch failed: HTTP {response.status_code}"})
-    content_length = str(response.headers.get("content-length") or "").strip()
-    if content_length.isdigit() and int(content_length) > MAX_JSON_IMAGE_BYTES:
-        raise HTTPException(status_code=400, detail={"error": "image_url exceeds 10MB limit"})
-    image_data = response.content
-    if not image_data:
-        raise HTTPException(status_code=400, detail={"error": "image_url returned empty content"})
-    if len(image_data) > MAX_JSON_IMAGE_BYTES:
-        raise HTTPException(status_code=400, detail={"error": "image_url exceeds 10MB limit"})
-    mime = str(response.headers.get("content-type") or "image/png").split(";", 1)[0].lower()
-    guessed_mime = mimetypes.guess_type(parsed.path)[0] or ""
+    image_data, final_url, content_type = fetch_public_url_stream(
+        source,
+        headers={"Accept": "image/*,*/*;q=0.8", "User-Agent": "drawbridge vision fetcher"},
+        timeout=REMOTE_IMAGE_TIMEOUT_SECONDS,
+        max_bytes=MAX_JSON_IMAGE_BYTES,
+    )
+    mime = str(content_type or "image/png").split(";", 1)[0].lower()
+    guessed_mime = mimetypes.guess_type(urlparse(final_url).path)[0] or ""
     if mime and not mime.startswith("image/") and mime not in {"application/octet-stream", "binary/octet-stream"}:
         raise HTTPException(status_code=400, detail={"error": "image_url must point to an image"})
     if not mime.startswith("image/") and guessed_mime.startswith("image/"):

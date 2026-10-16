@@ -335,10 +335,21 @@ def _mask_secrets(settings: dict[str, object], fields: tuple[str, ...]) -> dict[
 
 
 def _restore_secrets(incoming: object, current: object, fields: tuple[str, ...]) -> dict[str, object]:
-    """写回时把掩码还原成已保存的真实密钥；前端是整体读-改-写，不回填就会把密钥覆盖成掩码。"""
+    """写回时保住已保存的真实密钥。
+
+    两种情况都要处理：
+    - 前端回传掩码（它是整体读-改-写）→ 还原成真实值
+    - 调用方只提交了部分字段、根本没带这个 key → 保持原值，
+      否则 normalize 会把它清成 ""，等于静默删掉密钥
+    想真正清空就显式传 ""。
+    """
     merged = dict(incoming) if isinstance(incoming, dict) else {}
     current_map = current if isinstance(current, dict) else {}
     for field in fields:
+        if field not in merged:
+            if field in current_map:
+                merged[field] = current_map.get(field) or ""
+            continue
         if str(merged.get(field) or "").strip() == SECRET_MASK:
             merged[field] = current_map.get(field) or ""
     return merged

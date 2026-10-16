@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from datetime import datetime
@@ -35,6 +36,11 @@ def _clean(value: object, default: str = "") -> str:
 
 def _owner_id(identity: dict[str, object]) -> str:
     return _clean(identity.get("id")) or "anonymous"
+
+
+def _owner_slug(identity: dict[str, object]) -> str:
+    """归属在磁盘上的目录名：只保留安全字符，避免身份里的杂字符影响路径分层。"""
+    return re.sub(r"[^A-Za-z0-9_-]", "", _owner_id(identity))[:32] or "anonymous"
 
 
 def _task_key(owner_id: str, task_id: str) -> str:
@@ -139,7 +145,7 @@ class EditableFileTaskService:
             account = account_service.get_account(token) or {}
             account_email = _clean(account.get("email"))
             backend = OpenAIBackendAPI(token)
-            output_dir = EDITABLE_FILE_ROOT / kind / key.rsplit(":", 1)[-1]
+            output_dir = EDITABLE_FILE_ROOT / kind / _owner_slug(identity) / key.rsplit(":", 1)[-1]
             result = backend.export_psd_zip(base64_images, prompt, output_dir) if kind == "psd" else backend.export_ppt_zip(base64_images, prompt, output_dir)
             account_service.mark_text_used(token)
             data = {"conversation_id": result.conversation_id, "primary_url": _file_url(result.primary_path, base_url), "zip_url": _file_url(result.zip_path, base_url)}
@@ -157,13 +163,12 @@ class EditableFileTaskService:
         raw = str(relative_path or "").replace("\\", "/").lstrip("/")
         path = (EDITABLE_FILE_ROOT / raw).resolve()
         path.relative_to(EDITABLE_FILE_ROOT.resolve())
-        # 路径形如 {kind}/{task_id}/xxx,第二段是任务 ID,用它反查归属
+        # 产出目录是 {kind}/{owner}/{task_id}/...，第二段就是归属，直接比对。
+        # 不能只校验"我名下存在这个 task_id"：client_task_id 由调用方自选，
+        # 攻击者用受害者同 ID 建任务就能认领对方的目录。
         if identity is not None and _clean(identity.get("role")) != "admin":
             parts = Path(raw).parts
-            task_id = parts[1] if len(parts) > 1 else ""
-            with self._lock:
-                owned = self._tasks.get(_task_key(_owner_id(identity), task_id))
-            if owned is None:
+            if len(parts) < 3 or parts[1] != _owner_slug(identity):
                 raise FileNotFoundError(raw)
         if not path.is_file():
             raise FileNotFoundError(raw)

@@ -207,11 +207,13 @@ const docs: ApiDoc[] = [
     icon: FileArchive,
     input: [
       ["file_path", "string", "由任务 result.primary_url 或 result.zip_url 返回，通常不需要手动拼接。"],
+      ["Authorization", "header", "必填。该接口已要求鉴权，且只能下载本密钥自己任务产出的文件。"],
     ],
     output: [
       ["binary", "file", "返回 pptx/psd/zip 文件流。"],
     ],
-    example: (baseUrl: string, _key: string) => `curl ${baseUrl.replace(/\/v1$/, "")}/files/<file_path> -o result.zip`,
+    example: (baseUrl: string, key: string) =>
+      `curl ${baseUrl.replace(/\/v1$/, "")}/files/<file_path> \\\n  -H "Authorization: Bearer ${key || "<你的密钥>"}" -o result.zip`,
   },
 ];
 

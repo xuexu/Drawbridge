@@ -550,6 +550,9 @@ class ChatCompletionCacheTests(unittest.TestCase):
             headers = {"content-type": "image/png", "content-length": str(len(PNG_1X1))}
             content = PNG_1X1
 
+            def iter_content(self, chunk_size=None):
+                yield self.content
+
         with mock.patch("utils.helper.requests.get", return_value=FakeImageResponse()) as request_get:
             model, messages = openai_v1_chat_complete.text_chat_parts({
                 "model": "auto",
@@ -557,7 +560,7 @@ class ChatCompletionCacheTests(unittest.TestCase):
                     "role": "user",
                     "content": [
                         {"type": "text", "text": "Describe this"},
-                        {"type": "image_url", "image_url": {"url": "https://example.test/image.png"}},
+                        {"type": "image_url", "image_url": {"url": "http://93.184.216.34/image.png"}},
                     ],
                 }],
             })
@@ -605,6 +608,9 @@ class ChatCompletionCacheTests(unittest.TestCase):
             headers = {"content-type": "image/png", "content-length": str(len(PNG_1X1))}
             content = PNG_1X1
 
+            def iter_content(self, chunk_size=None):
+                yield self.content
+
         with mock.patch("utils.helper.requests.get", return_value=FakeImageResponse()) as request_get:
             _model, messages = openai_v1_response.text_response_parts({
                 "model": "auto",
@@ -613,7 +619,7 @@ class ChatCompletionCacheTests(unittest.TestCase):
                     "role": "user",
                     "content": [
                         {"type": "input_text", "text": "Describe this"},
-                        {"type": "input_image", "image_url": {"url": "https://example.test/image.png"}},
+                        {"type": "input_image", "image_url": {"url": "http://93.184.216.34/image.png"}},
                     ],
                 }],
             })

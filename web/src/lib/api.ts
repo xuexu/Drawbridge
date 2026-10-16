@@ -608,6 +608,20 @@ export async function downloadImages(paths: string[]) {
   URL.revokeObjectURL(url);
 }
 
+export async function downloadEditableFile(href: string) {
+  // 必须走 fetch 带上 Authorization：该接口要求鉴权，而 <a href> 无法附加请求头
+  const response = await request.get(href, { responseType: "blob" });
+  const blob = response.data as Blob;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = decodeURIComponent(href.split("?")[0].split("/").pop() || "download");
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export async function downloadSingleImage(path: string) {
   const response = await request.get(`/api/images/download/${path}`, { responseType: "blob" });
   const blob = response.data as Blob;
