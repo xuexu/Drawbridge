@@ -12,8 +12,21 @@ REBUILD="$1"
 
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '  \033[32m✅ %s\033[0m\n' "$*"; }
-warn() { printf '  \033[33m⚠️  %s\033[0m\n' "$*"; }
+warn() { printf '  \033[33m⚠️ %s\033[0m\n' "$*"; }
 die()  { printf '\n\033[31m❌ %s\033[0m\n\n' "$*"; printf '按回车键关闭窗口...'; read -r _; exit 1; }
+
+# macOS 没有 timeout 命令。Docker Desktop 处于"半死"状态时 docker info 会永久挂住
+# 而不是报错，所以这里自己限时 15 秒，否则脚本会静默卡死，新手完全不知道发生了什么。
+docker_ready() {
+  ( docker info >/dev/null 2>&1 ) &
+  local pid=$! i=0
+  while kill -0 "$pid" 2>/dev/null; do
+    i=$((i + 1))
+    if [ "$i" -gt 15 ]; then kill -9 "$pid" 2>/dev/null; return 1; fi
+    sleep 1
+  done
+  wait "$pid" 2>/dev/null
+}
 
 say ""
 say "================================================"
@@ -45,19 +58,29 @@ fi
 # ---------- 2. 检查 Docker 是否在运行 ----------
 say ""
 say "[2/5] 检查 Docker 是否已启动..."
-if ! docker info >/dev/null 2>&1; then
+if ! docker_ready 2>/dev/null; then
   warn "Docker 没在运行，正在帮你启动 Docker Desktop..."
   open -a Docker >/dev/null 2>&1 || open -a "Docker Desktop" >/dev/null 2>&1
 
   say "  等待 Docker 就绪（首次启动可能要 1-2 分钟）..."
   ready=0
-  for _ in $(seq 1 90); do
-    if docker info >/dev/null 2>&1; then ready=1; break; fi
+  started_at=$(date +%s)
+  while :; do
+    if docker_ready 2>/dev/null; then ready=1; break; fi
+    [ $(( $(date +%s) - started_at )) -ge 120 ] && break
     printf '.'
     sleep 2
   done
   say ""
-  [ "$ready" = "1" ] || die "等了 3 分钟 Docker 还没就绪。请手动打开「启动台 → Docker」，等托盘图标不再转动后重新双击本文件。"
+  if [ "$ready" != "1" ]; then
+    say ""
+    warn "Docker 超过 2 分钟仍未就绪。如果它已经开着，多半是卡住了，试这个："
+    say "    1. 点顶部菜单栏的小鲸鱼图标 → Quit Docker Desktop"
+    say "    2. 等 10 秒，再从「启动台」重新打开 Docker"
+    say "    3. 等图标不再转动后，重新双击本文件"
+    say ""
+    die "Docker 没有就绪，已停止。"
+  fi
   ok "Docker 已就绪"
 else
   ok "Docker 正在运行"

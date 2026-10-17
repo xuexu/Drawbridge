@@ -187,9 +187,10 @@ cp .env.example .env
 echo "CHATGPT2API_AUTH_KEY=$(openssl rand -hex 24)" >> .env
 ```
 
-**Windows** —— 复制这**三行**，一次粘贴：
+**Windows** —— 复制这**四行**，一次粘贴：
 
 ```powershell
+Copy-Item .env.example .env
 $bytes = New-Object byte[] 24
 [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
 Add-Content .env ("CHATGPT2API_AUTH_KEY=" + (-join ($bytes | ForEach-Object { $_.ToString("x2") })))
