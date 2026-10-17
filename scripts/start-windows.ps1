@@ -25,24 +25,40 @@ if ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "docker-compose.yml"))) {
     Die "没找到 docker-compose.yml。请确认你是在 Drawbridge 项目目录里运行本脚本。"
 }
 
-# Docker 不能用网络路径（UNC，例如 \\Mac\Home\... ，在虚拟机里访问 Mac 硬盘时就是这种）
-# 作为构建目录，必须先把项目复制到本机硬盘。
-if ((Get-Location).Path -like "\\*") {
-    Warn "检测到项目放在网络路径上：$((Get-Location).Path)"
-    Say ""
-    Say "  Docker 无法用网络路径作为构建目录，请先把项目复制到本机硬盘："
-    Say "    1. 在文件资源管理器里打开这个网络路径"
-    Say "    2. 全选、复制，粘贴到 C:\Drawbridge"
-    Say "    3. 到 C:\Drawbridge 里重新双击 start-windows.bat"
-    Say ""
-    Die "请先把项目复制到本机磁盘（如 C:\Drawbridge）再运行。"
-}
-
 Say ""
 Say "================================================"
 Say "        Drawbridge 一键启动（Windows）"
 Say "================================================"
 Say ""
+
+# Docker 不能用网络路径（UNC，例如 \\Mac\Home\... ，在虚拟机里访问 Mac 硬盘就是这种）
+# 作为构建目录。这里不指望用户自己搬文件，直接自动复制到本机硬盘再继续。
+if ((Get-Location).Path -like "\\*") {
+    $SourceDir = (Get-Location).Path
+    $LocalCopy = Join-Path $env:USERPROFILE "Drawbridge"
+    Warn "项目当前在网络路径上：$SourceDir"
+    Say "  Docker 不能用网络路径构建，正在自动复制到本机硬盘："
+    Say "    $LocalCopy"
+    Say ""
+
+    if (Test-Path (Join-Path $LocalCopy "docker-compose.yml")) {
+        Ok "本机已有一份，直接用它（不会覆盖，你的账号数据和密钥都在）"
+    } else {
+        Say "  复制中，首次会慢一点（网络路径读写本来就慢）..."
+        # robocopy 是 Windows 自带的，处理 UNC 路径最稳；退出码 0-7 都算成功，>=8 才是失败
+        robocopy $SourceDir $LocalCopy /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+        if ($LASTEXITCODE -ge 8) {
+            Die "自动复制失败（robocopy 退出码 $LASTEXITCODE）。请手动把项目文件夹复制到 $LocalCopy 后，到那里双击 start-windows.bat。"
+        }
+        Ok "已复制到本机"
+    }
+
+    Set-Location $LocalCopy
+    Say ""
+    Warn "记住：以后直接到这个本机文件夹双击 start-windows.bat，别再走网络路径"
+    Say "    $LocalCopy"
+    Say ""
+}
 
 # ---------- 1. 检查 Docker 是否安装 ----------
 Say "[1/5] 检查 Docker..."

@@ -5,6 +5,7 @@
 基于上游 1.8.0 的安全加固分支。功能与上游一致，以下是改动。
 
 + [新增] 一键启动脚本 `start-windows.bat` / `start-mac.command`：自动检测 Docker 是否安装、是否已启动，缺 Docker 就装、没启动就启动并等到就绪，没有密钥就自动生成，最后把面板地址和登录密钥打出来。此前 Docker 没运行时报的 `failed to connect to the docker API` 是最常见的新手卡点。
++ [修复] Windows 脚本在项目位于网络路径（如虚拟机里访问 `\\Mac\Home\...`）时，会**自动复制到 `C:\Users\<你>\Drawbridge`** 再运行。Docker 无法用网络路径作为构建目录，此前只提示用户手动搬文件。
 + [新增] 保姆级本机教程 [docs/local-zh.md](docs/local-zh.md)：Windows 与 macOS 的每一步命令分开写，复制粘贴即可。
 + [新增] README 增加架构图（Mermaid，GitHub 原生渲染）。
 
