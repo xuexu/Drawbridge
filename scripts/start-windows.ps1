@@ -1,4 +1,4 @@
-# Drawbridge 一键启动（Windows / PowerShell）
+﻿# Drawbridge 一键启动（Windows / PowerShell）
 # 一般不用直接跑这个文件，双击仓库根目录的 start-windows.bat 即可。
 # 它会自己检查 Docker 有没有装、有没有启动，缺什么补什么。
 param([switch]$Rebuild)
@@ -23,6 +23,19 @@ if ($RepoRoot -and (Test-Path (Join-Path $RepoRoot "docker-compose.yml"))) {
     Set-Location $RepoRoot
 } elseif (-not (Test-Path ".\docker-compose.yml")) {
     Die "没找到 docker-compose.yml。请确认你是在 Drawbridge 项目目录里运行本脚本。"
+}
+
+# Docker 不能用网络路径（UNC，例如 \\Mac\Home\... ，在虚拟机里访问 Mac 硬盘时就是这种）
+# 作为构建目录，必须先把项目复制到本机硬盘。
+if ((Get-Location).Path -like "\\*") {
+    Warn "检测到项目放在网络路径上：$((Get-Location).Path)"
+    Say ""
+    Say "  Docker 无法用网络路径作为构建目录，请先把项目复制到本机硬盘："
+    Say "    1. 在文件资源管理器里打开这个网络路径"
+    Say "    2. 全选、复制，粘贴到 C:\Drawbridge"
+    Say "    3. 到 C:\Drawbridge 里重新双击 start-windows.bat"
+    Say ""
+    Die "请先把项目复制到本机磁盘（如 C:\Drawbridge）再运行。"
 }
 
 Say ""

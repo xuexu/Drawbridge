@@ -15,17 +15,11 @@ ok()   { printf '  \033[32m✅ %s\033[0m\n' "$*"; }
 warn() { printf '  \033[33m⚠️ %s\033[0m\n' "$*"; }
 die()  { printf '\n\033[31m❌ %s\033[0m\n\n' "$*"; printf '按回车键关闭窗口...'; read -r _; exit 1; }
 
-# macOS 没有 timeout 命令。Docker Desktop 处于"半死"状态时 docker info 会永久挂住
-# 而不是报错，所以这里自己限时 15 秒，否则脚本会静默卡死，新手完全不知道发生了什么。
+# macOS 没有 timeout 命令。Docker Desktop 没起来时 docker info 会连不上（很快返回），
+# 但处于"半死"状态时会永久挂住，所以必须限时，否则脚本会静默卡死。
+# 用 perl 的 alarm 实现：干净、不会像后台作业那样打印 "Killed: 9" 吓到新手。
 docker_ready() {
-  ( docker info >/dev/null 2>&1 ) &
-  local pid=$! i=0
-  while kill -0 "$pid" 2>/dev/null; do
-    i=$((i + 1))
-    if [ "$i" -gt 15 ]; then kill -9 "$pid" 2>/dev/null; return 1; fi
-    sleep 1
-  done
-  wait "$pid" 2>/dev/null
+  perl -e 'alarm 20; exec @ARGV' docker info >/dev/null 2>&1
 }
 
 say ""
@@ -58,19 +52,23 @@ fi
 # ---------- 2. 检查 Docker 是否在运行 ----------
 say ""
 say "[2/5] 检查 Docker 是否已启动..."
-if ! docker_ready 2>/dev/null; then
+if ! docker_ready; then
   warn "Docker 没在运行，正在帮你启动 Docker Desktop..."
   open -a Docker >/dev/null 2>&1 || open -a "Docker Desktop" >/dev/null 2>&1
 
-  say "  等待 Docker 就绪（首次启动可能要 1-2 分钟）..."
+  say "  等待 Docker 就绪（首次启动通常 30-90 秒，最多等 3 分钟）"
+  say "  这一步慢是正常的：Docker 要先启动一个虚拟机，不是卡住了。"
   ready=0
   started_at=$(date +%s)
   while :; do
-    if docker_ready 2>/dev/null; then ready=1; break; fi
-    [ $(( $(date +%s) - started_at )) -ge 120 ] && break
-    printf '.'
-    sleep 2
+    if docker_ready; then ready=1; break; fi
+    elapsed=$(( $(date +%s) - started_at ))
+    [ "$elapsed" -ge 180 ] && break
+    printf '\r  等待中… 已 %d 秒' "$elapsed"
+    sleep 3
   done
+  printf '\r%*s\r' 32 ''
+  [ "$ready" = "1" ] && say "  Docker 就绪，用了 $(( $(date +%s) - started_at )) 秒"
   say ""
   if [ "$ready" != "1" ]; then
     say ""
