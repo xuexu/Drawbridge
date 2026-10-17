@@ -3,6 +3,9 @@
 本教程把 Drawbridge 部署到一台 Linux 服务器上，最终得到一个可以用 `POST /v1/images/generations`
 调用的图片生成 API。
 
+> 想在**自己的 Windows 或 Mac 电脑**上跑，不用看这份，去看
+> **[本机运行教程 docs/local-zh.md](local-zh.md)** —— 那份是给新手写的，双击就能启动。
+
 > [!WARNING]
 > 开始之前请确认你读过 [README](../README.md) 里的风险须知。**请勿使用你自己的重要账号或高价值账号**，
 > 逆向接口存在账号被限制或封禁的风险。

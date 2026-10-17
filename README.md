@@ -4,6 +4,46 @@
 
 ---
 
+## 它是怎么工作的
+
+```mermaid
+flowchart LR
+    subgraph clients["你的客户端"]
+        direction TB
+        A1["Cherry Studio"]
+        A2["New API"]
+        A3["网页画图台"]
+        A4["curl / 自己的代码"]
+    end
+
+    subgraph bridge["Drawbridge（跑在你自己电脑或服务器上）"]
+        direction TB
+        B1["OpenAI 兼容接口<br/>/v1/images/generations<br/>/v1/images/edits"]
+        B2["号池管理<br/>多账号轮换 · 额度刷新"]
+        B3["管理面板 :3000<br/>画图 · 导入账号 · 查看日志"]
+    end
+
+    subgraph upstream["ChatGPT 官网"]
+        C1["图片生成 / 图片编辑"]
+    end
+
+    A1 --> B1
+    A2 --> B1
+    A4 --> B1
+    A3 --> B3
+    B1 --> B2
+    B3 --> B2
+    B2 --> C1
+
+    style bridge fill:#eef2ff,stroke:#6366f1,stroke-width:2px
+    style clients fill:#f8fafc,stroke:#cbd5e1
+    style upstream fill:#f0fdf4,stroke:#22c55e
+```
+
+一句话：**你用什么客户端都行，Drawbridge 在中间负责把请求翻译成 ChatGPT 官网能听懂的形式，并帮你轮换多个账号。**
+
+---
+
 ## 这是什么
 
 Drawbridge 把 ChatGPT 官网的图片生成能力，桥接成一个标准的 OpenAI 兼容 API。
@@ -40,18 +80,32 @@ Drawbridge 把 ChatGPT 官网的图片生成能力，桥接成一个标准的 Op
 
 ## 快速开始
 
-### Docker 部署（推荐）
+### 方式一：一键启动（推荐给新手）
+
+项目里带了自动启动脚本，**会自己检查 Docker 装没装、开没开，缺什么补什么**，
+然后启动服务并把登录密钥打给你。
+
+| 你的系统 | 怎么做 |
+|:--|:--|
+| **Windows** | 双击 `start-windows.bat` |
+| **macOS** | 双击 `start-mac.command` |
+
+跑完窗口里会直接告诉你面板地址和登录密钥。第一次要构建镜像，约 3–8 分钟。
+
+> 不熟悉终端、不知道 Docker 是什么？看 **[保姆级教程 docs/local-zh.md](docs/local-zh.md)**，
+> Windows 和 Mac 的每一步命令都分开写好了，复制粘贴即可。
+
+### 方式二：手动命令
 
 ```bash
-git clone <本仓库地址> drawbridge
-cd drawbridge
+git clone https://github.com/Frank-789/Drawbridge.git
+cd Drawbridge
 
-# 1. 先生成并设置一个随机密钥 —— 不做这步服务会拒绝启动
+# 先生成并设置一个随机密钥 —— 不做这步服务会拒绝启动
 cp .env.example .env
 echo "CHATGPT2API_AUTH_KEY=$(openssl rand -hex 24)" >> .env
-# .env.example 里这一行是注释掉的，所以追加后只有一处定义
 
-# 2. 启动
+# 启动
 docker compose up -d
 ```
 
@@ -59,7 +113,11 @@ docker compose up -d
 - API 地址：`http://localhost:3000/v1`
 - 数据目录：`./data`
 
-页面上用 `.env` 里那个密钥登录。
+用 `grep CHATGPT2API_AUTH_KEY .env` 取出密钥，在页面上登录。
+
+### 部署到 Linux 服务器
+
+见 **[docs/deploy-zh.md](docs/deploy-zh.md)**（含服务器选购条件、防火墙、WARP 代理链路、常见故障）。
 
 ### 如果图片链路经常被 Cloudflare 拦截
 

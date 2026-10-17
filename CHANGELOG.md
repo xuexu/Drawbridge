@@ -4,6 +4,10 @@
 
 基于上游 1.8.0 的安全加固分支。功能与上游一致，以下是改动。
 
++ [新增] 一键启动脚本 `start-windows.bat` / `start-mac.command`：自动检测 Docker 是否安装、是否已启动，缺 Docker 就装、没启动就启动并等到就绪，没有密钥就自动生成，最后把面板地址和登录密钥打出来。此前 Docker 没运行时报的 `failed to connect to the docker API` 是最常见的新手卡点。
++ [新增] 保姆级本机教程 [docs/local-zh.md](docs/local-zh.md)：Windows 与 macOS 的每一步命令分开写，复制粘贴即可。
++ [新增] README 增加架构图（Mermaid，GitHub 原生渲染）。
+
 + [安全] 图片 URL 抓取拒绝内网、回环、链路本地等非公网地址，重定向逐跳校验；此前任意普通用户密钥即可用图片链接探测内网服务与云元数据地址。聊天与 vision 链路（`/v1/chat/completions`、`/v1/messages`、`/v1/responses`）走的是另一个抓取函数，同样已加上守卫，两处共用同一个实现。
 + [安全] `/files/{path}` 下载接口补上鉴权并校验任务归属；此前该接口无任何鉴权，可遍历下载他人产出的 PPT / PSD。产出目录同时改为按归属隔离（`{kind}/{owner}/{task_id}`），避免用同名 `client_task_id` 认领他人的目录。
 + [安全] 管理密钥比较改用 `hmac.compare_digest` 且先编码为 bytes；否则发送含非 ASCII 字符的 Bearer 会让所有受保护接口抛 `TypeError` 变成 500。
