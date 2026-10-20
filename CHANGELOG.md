@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
++ [新增] 移植上游 chatgpt2api 的 `gpt-image-2.5` / `codex-gpt-image-2.5` 生图模型适配：官网链路别名 `gpt-image-2.5` 支持独立配置上游模型名（留空跟随 `gpt-image-2` 设置）；Codex 链路别名（含 `plus` / `team` / `pro` 前缀）工具模型默认 `gpt-image-2.5-flare`、可切换 `gpt-image-2.5-sunburst`，质量档新增 `xhigh` / `max` 支持。
+
 ## Drawbridge 1.8.0-hardened - 2026-10-16
 
 基于上游 1.8.0 的安全加固分支。功能与上游一致，以下是改动。
