@@ -152,8 +152,9 @@ bun run dev
 
 - 兼容 `POST /v1/images/generations`、`POST /v1/images/edits`
 - 兼容面向图片场景的 `POST /v1/chat/completions`、`POST /v1/responses`
-- `GET /v1/models` 返回 `gpt-image-2`、`codex-gpt-image-2`、`auto`、`gpt-5` 系列等
+- `GET /v1/models` 返回 `gpt-image-2`、`gpt-image-2.5`、`codex-gpt-image-2`、`codex-gpt-image-2.5`、`auto`、`gpt-5` 系列等
 - 支持 `n` 返回多张结果；支持生成可编辑 PPT / PSD
+- 支持 ChatGPT Images 2.5：官网链路 `gpt-image-2.5`（上游模型名可单独配置，留空跟随 `gpt-image-2`）；Codex 链路 `codex-gpt-image-2.5`（支持 `plus` / `team` / `pro` 前缀，工具模型默认 `gpt-image-2.5-flare`，可切换 `gpt-image-2.5-sunburst`，质量档额外支持 `xhigh` / `max`）
 - 内置在线画图工作台：生成、图片编辑、多图组图编辑、历史回看
 - 号池管理：自动刷新额度、轮询可用账号、失效自动剔除、四种导入方式
 - 网页端配置 HTTP / HTTPS / SOCKS5 代理，支持 WARP / FlareSolverr 稳定代理运行时
